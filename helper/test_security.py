@@ -36,6 +36,14 @@ check("127.0.0.1 spelling is allowed",
 check("chrome extension origin is allowed", reason(HOST, "chrome-extension://" + server.CHROME_EXTENSION_ID) is None)
 check("unconfigured safari extension is refused",
       reason(HOST, "safari-web-extension://ABC-123") is not None)
+server.ALLOW_SAFARI = True
+check("safari extension is allowed once YT_EXT_ALLOW_SAFARI opts in",
+      reason(HOST, "safari-web-extension://ABC-123") is None)
+check("the safari opt-in needs an id, not the bare scheme",
+      reason(HOST, "safari-web-extension://") is not None)
+check("the safari opt-in does not loosen web origins",
+      reason(HOST, "https://safari-web-extension.evil.example") is not None)
+server.ALLOW_SAFARI = False
 check("a web page origin is refused", reason(HOST, "https://evil.example") is not None)
 check("youtube.com itself is refused", reason(HOST, "https://www.youtube.com") is not None)
 check("Origin 'null' (sandboxed frame) is refused", reason(HOST, "null") is not None)

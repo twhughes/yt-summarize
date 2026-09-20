@@ -807,10 +807,18 @@ CHROME_EXTENSION_ID = "".join(chr(ord("a") + int(c, 16)) for c in _key_hash)
 EXTENSION_ORIGINS = {"chrome-extension://" + CHROME_EXTENSION_ID}
 # Other browsers require their exact installation origin, explicitly configured.
 EXTENSION_ORIGINS.update(filter(None, os.environ.get("YT_EXT_ALLOWED_ORIGINS", "").split(",")))
+# Safari is the one browser an exact origin cannot cover: it gives an extension
+# a new random safari-web-extension://<uuid> at every launch. Opt-in only
+# (YT_EXT_ALLOW_SAFARI=1) — it trusts every Safari extension on this Mac, so it
+# is off unless the person running the helper also runs the Safari build.
+ALLOW_SAFARI = os.environ.get("YT_EXT_ALLOW_SAFARI") == "1"
+SAFARI_SCHEME = "safari-web-extension://"
 
 
 def origin_allowed(origin):
-    return origin in LOCAL_ORIGINS or origin in EXTENSION_ORIGINS
+    if origin in LOCAL_ORIGINS or origin in EXTENSION_ORIGINS:
+        return True
+    return ALLOW_SAFARI and origin.startswith(SAFARI_SCHEME) and len(origin) > len(SAFARI_SCHEME)
 
 
 def stranger_reason(host, origin, fetch_site=None, fetch_mode=None):

@@ -151,7 +151,9 @@ Pending server jobs are held in memory: after a helper restart, retry unfinished
 - The helper listens on `127.0.0.1` and validates Host and Origin headers. It allows its own
   page and the exact bundled Chrome extension origin, rather than trusting every extension.
   Other browser installations must be explicitly configured with `YT_EXT_ALLOWED_ORIGINS`
-  (comma-separated full origins). This is a browser-request defense, not authentication
+  (comma-separated full origins). Safari gives an extension a new random origin at every
+  launch, so a Safari build needs `YT_EXT_ALLOW_SAFARI=1`, which admits every Safari extension
+  on the Mac; it is off by default. This is a browser-request defense, not authentication
   against programs already running on your Mac or powerful extensions that can modify pages.
 - Links from other sites do not automatically summarize a new video. The chat page requires
   a click, transcript GETs only read cached text, and the helper page cannot be framed.
