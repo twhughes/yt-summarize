@@ -1,0 +1,22 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 helper/test_captions.py
+      - run: python3 helper/test_fallback.py
+      - run: python3 helper/test_security.py
+      - run: python3 helper/test_runtime.py
+      - run: node helper/test_frontend.js
+      - run: node --check extension/background.js && node --check extension/content.js
+      - run: bash -n install.sh && bash -n run.sh && bash -n tools/chat.sh

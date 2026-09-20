@@ -4,6 +4,7 @@
 # It installs nothing and changes nothing. For each missing piece it prints
 # the one command that fixes it. Run it again until every line says "ok".
 set -uo pipefail
+cd "$(dirname "$0")"
 
 MISSING=0
 ok()   { echo "ok      $1"; }
@@ -25,10 +26,18 @@ CLAUDE="$(command -v claude || true)"
 if [ -n "$CLAUDE" ]; then ok "claude (writes the summary)"
 else need "claude (writes the summary)" "curl -fsSL https://claude.ai/install.sh | bash   — then run: claude   and log in (needs a paid Claude plan)"; fi
 
-if command -v whisper-cli >/dev/null && command -v ffmpeg >/dev/null; then
-  ok "whisper-cli + ffmpeg (optional: videos with no captions)"
+if command -v python3 >/dev/null; then
+  python3 - <<'CHECK'
+from helper import transcribe
+model = transcribe.available()
+print("ok      local transcription (model found)" if model else
+      "skip    optional local transcription: " + transcribe.unavailable_reason())
+CHECK
+fi
+if [ -d /Applications/iTerm.app ] || [ -d "$HOME/Applications/iTerm.app" ]; then
+  ok "iTerm2 (optional: Open in terminal)"
 else
-  echo "skip    whisper-cli + ffmpeg (optional: videos with no captions)"
+  echo "skip    iTerm2 (optional: Open in terminal; https://iterm2.com)"
 fi
 
 echo
@@ -37,13 +46,19 @@ if [ "$MISSING" -gt 0 ]; then
   exit 1
 fi
 
-echo "Checking that claude is logged in (one tiny request, up to 60 s) ..."
-if REPLY="$(echo 'Reply with the single word: ready' | "$CLAUDE" -p --tools "" --strict-mcp-config 2>&1)"; then
-  ok "claude answered: $(echo "$REPLY" | tail -1 | cut -c1-40)"
-  echo
-  echo "All set. Next: ./run.sh   (then load the extension — see README.md step 3)"
-else
-  echo "MISSING claude login"
-  echo "        fix: run   claude   once, log in, quit with /exit, then run ./install.sh again"
-  exit 1
-fi
+echo "Checking Claude login and the selected model (uses a small request, 60 s limit) ..."
+python3 - <<'CHECK'
+import sys
+from helper import claude_text, server
+try:
+    reply = claude_text.run("Reply with the single word: ready", model=server.CLAUDE_MODEL,
+                            timeout=60, on_error="raise")
+    if not reply:
+        raise RuntimeError("Claude returned no text")
+except RuntimeError as exc:
+    print("FAILED  Claude check: " + str(exc))
+    print("        Run claude to check login/quota; check YT_EXT_MODEL and update Claude Code if a flag is unsupported.")
+    sys.exit(1)
+print("ok      Claude answered using " + server.CLAUDE_MODEL)
+print("All set. Start ./run.sh, then open http://localhost:8188/ and paste a video link.")
+CHECK

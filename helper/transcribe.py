@@ -20,8 +20,14 @@ can expose a live progress bar; stage is "download" | "convert" | "transcribe".
 import os
 import re
 import shutil
+import threading
 import subprocess
 from pathlib import Path
+
+try:
+    import processes
+except ImportError:
+    from . import processes
 
 WHISPER_CLI = shutil.which("whisper-cli") or "/opt/homebrew/bin/whisper-cli"
 FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
@@ -80,25 +86,40 @@ def _stream(cmd, cwd, timeout, on_line):
 
     Returns (returncode, tail_of_output). Raises subprocess.TimeoutExpired.
     """
-    proc = subprocess.Popen(
+    proc = processes.spawn(
         cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, errors="replace", bufsize=1,
     )
+    expired = threading.Event()
+    def kill_group():
+        processes.kill(proc)
+    def deadline():
+        expired.set()
+        kill_group()
+    timer = threading.Timer(timeout, deadline)
+    timer.daemon = True
+    timer.start()
     tail = []
     try:
         for line in proc.stdout:
             line = line.rstrip("\r\n")
-            if not line:
-                continue
-            tail.append(line)
-            if len(tail) > 40:
-                del tail[0]
-            on_line(line)
-        code = proc.wait(timeout=timeout)
-    except Exception:
-        proc.kill()
+            if line:
+                tail.append(line)
+                tail = tail[-40:]
+                on_line(line)
+        code = proc.wait()
+        if expired.is_set():
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return code, "\n".join(tail)
+    except BaseException:
+        kill_group()
+        proc.wait()
         raise
-    return code, "\n".join(tail)
+    finally:
+        timer.cancel()
+        proc.stdout.close()
+        processes.release(proc)
+
 
 
 def transcribe(workdir, url, on_progress, cookies_from_browser=None, model=None):
@@ -143,7 +164,7 @@ def transcribe(workdir, url, on_progress, cookies_from_browser=None, model=None)
     on_progress("convert", 0, "converting audio")
     wav = workdir / "audio.wav"
     try:
-        proc = subprocess.run(
+        proc = processes.run(
             [FFMPEG, "-y", "-loglevel", "error", "-i", str(audio[0]),
              "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(wav)],
             cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

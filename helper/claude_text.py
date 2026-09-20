@@ -16,7 +16,13 @@ Python 3 standard library only.
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+
+try:
+    import processes
+except ImportError:
+    from . import processes
 
 STDERR_TAIL = 2000
 
@@ -28,7 +34,9 @@ def claude_bin():
 
 
 def command(binary, model):
-    cmd = [binary, "-p", "--tools", "", "--strict-mcp-config"]
+    cmd = [binary, "-p", "--tools", "", "--strict-mcp-config",
+           "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
+           "--no-session-persistence"]
     if model:
         cmd += ["--model", model]
     return cmd
@@ -49,13 +57,14 @@ def run(prompt, *, model=None, timeout=900, on_error="return"):
         return fail("claude CLI not found (%s)" % binary)
 
     try:
-        proc = subprocess.run(
-            command(binary, model),
-            input=prompt.encode("utf-8"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-        )
+        with tempfile.TemporaryDirectory(prefix="yt-claude-") as workdir:
+            proc = processes.run(
+                command(binary, model), cwd=workdir,
+                input=prompt.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
     except subprocess.TimeoutExpired:
         return fail("claude did not finish within %ds" % timeout)
     except OSError as exc:

@@ -551,16 +551,8 @@ function boot() {
 
   function run(item) {
     const watcher = watchProgress(item);
-    fetch("/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: item.url }),
-    })
-      .then((response) =>
-        response.json()
-          .catch(() => ({}))
-          .then((data) => ({ ok: response.ok, status: response.status, data: data }))
-      )
+    YT.requestSummary("", item.url)
+      .then((data) => ({ ok: true, status: 200, data }))
       .then((result) => {
         if (!items.has(item.id)) {
           return; // Removed while it was running.
@@ -1371,9 +1363,8 @@ function boot() {
   // with no panel to show it on. It never re-queues: the extension already
   // asked the server for this video, and a second request would run the whole
   // pipeline again in parallel. We just wait for the archive to catch up.
-  // #chat=<id> is the extension's "Chat about this video": open (queueing
-  // first if this video was never summarized — the menu item itself does not
-  // queue) and unfold the chat pane. The input unlocks when the summary lands.
+  // #chat=<id> opens chat. For uncached videos, require a click: an external
+  // site can navigate here too, so a URL fragment alone must never start work.
   function focusFromHash() {
     const hash = location.hash || "";
 
@@ -1381,9 +1372,17 @@ function boot() {
     if (chatMatch) {
       const id = chatMatch[1];
       if (!items.has(id)) {
-        enqueue(id, { silent: true });
-        save();
-        pump();
+        noticeEl.textContent = "Start a summary to chat about this video. ";
+        const start = document.createElement("button");
+        start.textContent = "Summarize this video";
+        start.addEventListener("click", () => {
+          enqueue(id, { silent: true });
+          save();
+          pump();
+          focusFromHash();
+        });
+        noticeEl.appendChild(start);
+        return;
       }
       const item = items.get(id);
       item.chatOpen = true;

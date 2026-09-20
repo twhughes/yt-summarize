@@ -136,6 +136,33 @@ globalThis.YT = (() => {
     return source === "whisper" ? "🎙 local transcript" : "";
   }
 
+  async function requestSummary(base, url) {
+    const post = async (route, body) => {
+      const control = new AbortController();
+      const timer = setTimeout(() => control.abort(), 15000);
+      try {
+        const response = await fetch(base + route, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body), signal: control.signal
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error((data.error || "Helper request failed") +
+            (data.detail ? "\n\n" + data.detail : ""));
+        }
+        return { status: response.status, data };
+      } finally { clearTimeout(timer); }
+    };
+    let result = await post("/summarize", { url });
+    const id = result.data.video_id;
+    while (result.status === 202) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      result = await post("/job", { id });
+    }
+    if (!result.data.summary) throw new Error("Helper returned an empty summary");
+    return result.data;
+  }
+
   const LABEL_MAX = 32;
 
   // "Core claim: the thing" -> <strong>Core claim:</strong> the thing.
@@ -223,6 +250,7 @@ globalThis.YT = (() => {
   }
 
   return {
+    requestSummary,
     VIDEO_ID_RE,
     videoId,
     watchUrl,

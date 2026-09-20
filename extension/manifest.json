@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YT Summarize",
-  "version": "0.4.0",
-  "description": "Summarize YouTube videos with your local helper server, or hand the whole transcript to Claude in a terminal — from the toolbar, the page, or any link.",
+  "version": "0.5.0",
+  "description": "Summarize YouTube videos with your local helper server, or hand the whole transcript to Claude in a terminal \u2014 from the toolbar, the page, or any link.",
   "permissions": [
     "contextMenus",
     "tabs",
@@ -20,13 +20,18 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["shared.js", "content.js"],
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "shared.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "YT Summarize — summarize this video, or show the panel",
+    "default_title": "YT Summarize \u2014 summarize this video, or show the panel",
     "default_icon": {
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
@@ -35,5 +40,6 @@
   "icons": {
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtbo9jZ39tMg/bjCgybnTkZnmKsrgBHKcN0tKSMkyLz5w1lofwwqMa9IDVTyZdmgMtAGXdJbabEa1oTvN03oFbJFLRMCqpi3Z3lI7vODpW3uD/aXnUD0nssqoX1WNvnvUtZ2TWoAMT0jmRfL+fmFSemoSTVetam94TXKIAVvftwoVBpXMtdJjDAuTdzLiTikWYqI1dRr5jStm6LlES+Y3yQVA7TQbH2SkMkKkLK4qb8eiXzgYFD+7Y9mpN9koDQhiK6xyew0U+eZGL42GmLQlgYOBDHLjMUi4TncNUYzRowmv80Ex7ntEhvLfgVQyRvRI9c297fmlLS0dXNsHk59bVQIDAQAB"
 }

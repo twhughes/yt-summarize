@@ -17,15 +17,13 @@ const b = globalThis.browser ?? globalThis.chrome;
 
 const { videoId, watchUrl } = YT;
 
-const HELPER = "http://localhost:8188/summarize";
-const HELPER_PROGRESS = "http://localhost:8188/progress/";
+const HELPER_PROGRESS = "http://localhost:8188/progress";
 const PROGRESS_POLL_MS = 1000;
 const BUCKET = "http://localhost:8188/";
 const OEMBED = "https://www.youtube.com/oembed";
 const STORAGE_KEY = "ytSummarizeQueue";
 const PANEL_TABS_KEY = "ytSummarizePanelTabs";
 
-const SUMMARIZE_TIMEOUT_MS = 300000; // 5 minutes — captions + a model call.
 const TITLE_TIMEOUT_MS = 2000;
 
 const HELPER_DOWN_MESSAGE = "helper not running — run ./run.sh in a terminal";
@@ -504,7 +502,10 @@ function watchProgress(item) {
       return;
     }
     try {
-      const response = await fetch(HELPER_PROGRESS + encodeURIComponent(item.id));
+      const response = await fetch(HELPER_PROGRESS, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id })
+      });
       const progress = await response.json();
       if (stopped || item.status !== "running") {
         return;
@@ -526,45 +527,12 @@ function watchProgress(item) {
 }
 
 async function callHelper(url) {
-  const control = new AbortController();
-  const timer = setTimeout(() => control.abort(), SUMMARIZE_TIMEOUT_MS);
-
-  let response;
   try {
-    response = await fetch(HELPER, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-      signal: control.signal
-    });
+    return await YT.requestSummary("http://localhost:8188", url);
   } catch (err) {
-    if (err && err.name === "AbortError") {
-      throw new Error("timed out after 5 minutes");
-    }
-    // A refused connection surfaces as a generic TypeError.
-    throw new Error(HELPER_DOWN_MESSAGE);
-  } finally {
-    clearTimeout(timer);
+    if (err instanceof TypeError) throw new Error(HELPER_DOWN_MESSAGE);
+    throw err;
   }
-
-  let payload = {};
-  try {
-    payload = await response.json();
-  } catch (err) {
-    payload = {};
-  }
-
-  if (!response.ok) {
-    const reason = payload.error || `helper returned ${response.status}`;
-    const detail = payload.detail ? `\n\n${payload.detail}` : "";
-    throw new Error(reason + detail);
-  }
-
-  if (!payload.summary) {
-    throw new Error("helper returned an empty summary");
-  }
-
-  return payload;
 }
 
 function describe(err) {

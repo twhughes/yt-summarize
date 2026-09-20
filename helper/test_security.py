@@ -33,9 +33,9 @@ check("no Origin (curl, typed URL) is allowed", reason(HOST, None) is None)
 check("bucket page origin is allowed", reason(HOST, "http://" + HOST) is None)
 check("127.0.0.1 spelling is allowed",
       reason(server.LOCAL_HOSTS[1], "http://" + server.LOCAL_HOSTS[1]) is None)
-check("chrome extension origin is allowed", reason(HOST, "chrome-extension://abcdef") is None)
-check("safari extension origin is allowed",
-      reason(HOST, "safari-web-extension://ABC-123") is None)
+check("chrome extension origin is allowed", reason(HOST, "chrome-extension://" + server.CHROME_EXTENSION_ID) is None)
+check("unconfigured safari extension is refused",
+      reason(HOST, "safari-web-extension://ABC-123") is not None)
 check("a web page origin is refused", reason(HOST, "https://evil.example") is not None)
 check("youtube.com itself is refused", reason(HOST, "https://www.youtube.com") is not None)
 check("Origin 'null' (sandboxed frame) is refused", reason(HOST, "null") is not None)
@@ -48,8 +48,8 @@ check("cross-site <img>/<script> embed is refused",
       reason(HOST, None, "cross-site", "no-cors") is not None)
 check("a link from another site to the bucket page is allowed",
       reason(HOST, None, "cross-site", "navigate") is None)
-check("extension GET without Origin is allowed",
-      reason(HOST, None, "cross-site", "cors") is None)
+check("cross-site browser request without Origin is refused",
+      reason(HOST, None, "cross-site", "cors") is not None)
 
 # -- over the wire ----------------------------------------------------------
 
@@ -103,7 +103,7 @@ status, headers = call("GET", "/health")
 check("plain GET /health -> 200", status == 200)
 check("no Origin -> no CORS header", "access-control-allow-origin" not in headers)
 
-ext = "chrome-extension://abcdef"
+ext = "chrome-extension://" + server.CHROME_EXTENSION_ID
 status, headers = call("GET", "/recent", origin=ext)
 check("extension GET /recent -> 200", status == 200)
 check("extension origin is echoed, never '*'",
@@ -112,7 +112,19 @@ check("extension origin is echoed, never '*'",
 status, _ = call("POST", "/config", origin="http://" + HOST, body={"prompt": ""})
 check("bucket page POST /config -> 200", status == 200)
 
+status, _ = call("POST", "/summarize", origin="chrome-extension://" + "a" * 32,
+                 body={"id": "aaaaaaaaaaa"})
+check("unrelated extension cannot start jobs", status == 403)
+status, _ = call("GET", "/recent", origin=ext + ".evil.example")
+check("extension lookalike is refused", status == 403)
+status, _ = call("GET", "/transcript?v=aaaaaaaaaaa")
+check("uncached transcript GET does not start work", status == 404)
+status, headers = call("GET", "/")
+check("bucket cannot be framed", headers.get("x-frame-options") == "DENY")
+check("CSP also blocks framing", "frame-ancestors 'none'" in headers.get("content-security-policy", ""))
+
 httpd.shutdown()
+httpd.server_close()
 
 # -- claude has no tools ----------------------------------------------------
 

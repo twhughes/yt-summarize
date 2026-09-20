@@ -7,7 +7,8 @@ local summarize pipeline (yt-dlp auto-captions -> claude CLI).
 Python 3 standard library only. No pip dependencies.
 
     GET    /health              -> {"ok": true}
-    POST   /summarize           -> {"url": "https://www.youtube.com/watch?v=..."}
+    POST   /summarize           -> 202 job accepted (body: {"url": "..."})
+    POST   /job                 -> 202 pending, 200 summary, or error (body: {"id": "..."})
     POST   /chat                -> same body; briefing + interactive Claude in iTerm2
     POST   /ask                 -> {"id"|"url", "question", "history"} -> {"reply"}
     GET    /                    -> the bucket page (helper/index.html)
@@ -21,10 +22,15 @@ Port defaults to 8188; override with
 the YT_EXT_PORT environment variable.
 """
 
+import base64
+import hashlib
 import json
+from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -33,6 +39,11 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+try:
+    import processes
+except ImportError:
+    from . import processes
 from urllib.parse import parse_qs, unquote, urlsplit
 
 # The yt-dlp/VTT engine lives beside this file. helper/ is on sys.path when the
@@ -90,7 +101,7 @@ SHARED_JS = HERE.parent / "extension" / "shared.js"
 RECENT_LIMIT = 200
 
 # YT_DLP / YT_DLP_TIMEOUT now live in captions.py (imported above).
-CLAUDE_MODEL = os.environ.get("YT_EXT_MODEL") or "claude-sonnet-5"
+CLAUDE_MODEL = os.environ.get("YT_EXT_MODEL") or "sonnet"
 
 CLAUDE_TIMEOUT = 240       # seconds
 
@@ -137,6 +148,58 @@ ASK_INSTRUCTIONS = (
 
 ASK_HISTORY_TURNS = 12         # last N turns sent back to the model
 ASK_MAX_QUESTION = 4000        # characters
+
+
+# One lock covers every expensive entry point, including chat and transcript reads.
+# Reentrant because chat calls summarize, which calls fetch_transcript.
+PIPELINE_LOCK = threading.RLock()
+
+def serialized(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with PIPELINE_LOCK:
+            return fn(*args, **kwargs)
+    return wrapped
+
+JOBS = {}
+JOBS_LOCK = threading.Lock()
+JOB_WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yt-summary")
+MAX_PENDING_JOBS = 100
+MAX_FINISHED_JOBS = 200
+
+def job_read(video_id):
+    with JOBS_LOCK:
+        job = JOBS.get(video_id)
+        if job is None:
+            return 404, {"error": "job not found; the helper may have restarted"}
+        return job["status"], dict(job["payload"])
+
+def start_job(video_id):
+    with JOBS_LOCK:
+        previous = JOBS.get(video_id)
+        if previous and previous["status"] == 202:
+            return 202, dict(previous["payload"])
+        if sum(j["status"] == 202 for j in JOBS.values()) >= MAX_PENDING_JOBS:
+            return 429, {"error": "queue full; try again after a video finishes"}
+        finished = [key for key, value in JOBS.items() if value["status"] != 202]
+        for key in finished[:-MAX_FINISHED_JOBS + 1]:
+            del JOBS[key]
+        payload = {"video_id": video_id, "state": "queued"}
+        JOBS[video_id] = {"status": 202, "payload": payload}
+        JOB_WORKER.submit(finish_job, video_id)
+        return 202, dict(payload)
+
+def finish_job(video_id):
+    # Hold the pipeline lock before reporting running: /ask may be ahead of us.
+    with PIPELINE_LOCK:
+        with JOBS_LOCK:
+            JOBS[video_id]["payload"]["state"] = "running"
+        try:
+            status, payload = summarize_video(video_id)
+        except Exception as exc:
+            status, payload = 500, {"error": "internal error", "detail": str(exc)}
+        with JOBS_LOCK:
+            JOBS[video_id] = {"status": status, "payload": payload}
 
 
 # --------------------------------------------------------------------------
@@ -344,7 +407,7 @@ def transcript_path(video_id):
 # Progress — what the one running job is doing right now, for the UIs' bar
 # --------------------------------------------------------------------------
 # video_id -> {"stage", "pct", "note", "source"}. Only ever one running job
-# (both UIs pump strictly one at a time), but keyed by id so a stale poll for
+# (the helper serializes the pipeline), but keyed by id so a stale poll for
 # another video reads "idle" rather than someone else's bar.
 
 PROGRESS = {}
@@ -384,7 +447,8 @@ def no_captions_payload(meta):
     return {"error": "no captions available", "detail": detail}
 
 
-def fetch_transcript(video_id):
+@serialized
+def fetch_transcript(video_id, cached_only=False):
     """The transcript (already cleaned + truncated) and meta for one video.
 
     Cached under transcripts/<id>.json so chat turns and copy-to-clipboard
@@ -401,6 +465,8 @@ def fetch_transcript(video_id):
     except (OSError, ValueError):
         pass
 
+    if cached_only:
+        return None, "", 404, {"error": "transcript not cached; summarize this video first"}
     source = "captions"
 
     url = canonical_url(video_id)
@@ -525,6 +591,7 @@ def summarize(meta, transcript):
 # The pipeline
 # --------------------------------------------------------------------------
 
+@serialized
 def summarize_video(video_id):
     """Full pipeline for one video id.
 
@@ -571,6 +638,7 @@ def transcript_source(video_id):
         return "captions"
 
 
+@serialized
 def chat_video(video_id):
     """Prepare a briefing for one video and open an interactive Claude on it.
 
@@ -610,6 +678,7 @@ def chat_video(video_id):
     }
 
 
+@serialized
 def ask_video(video_id, question, history):
     """Answer one question about a video, inside the bucket page.
 
@@ -723,21 +792,25 @@ def log(message):
 # also prove where it came from.
 #   Host   — must name this machine. Stops DNS rebinding (a hostile domain
 #            re-pointed at 127.0.0.1 still sends its own name as Host).
-#   Origin — browsers attach it to every cross-site request and to every
-#            POST/DELETE. Absent = not a cross-site browser call (curl, a typed
-#            URL, the bucket page's own GETs). Present = must be the bucket
-#            page or a browser extension; a web page cannot forge it.
-#   Sec-Fetch-* — the one browser call that carries no Origin is a cross-site
-#            <img>/<script> tag (mode "no-cors"). It cannot read the answer,
-#            but it has no business here either.
+#   Origin — must exactly match our page or the configured extension. The
+#            extension uses POST even for polling, so browsers send Origin.
+#   Sec-Fetch-* — refuse cross-site fetches without Origin; permit navigation
+#            to the page, where starting new work requires an explicit click.
+# This does not authenticate local programs that can set their own headers.
 LOCAL_HOSTS = ("localhost:%d" % PORT, "127.0.0.1:%d" % PORT)
 LOCAL_ORIGINS = tuple("http://" + host for host in LOCAL_HOSTS)
-EXTENSION_SCHEMES = ("chrome-extension://", "safari-web-extension://",
-                     "moz-extension://")
+# The manifest public key gives unpacked Chrome installs a stable ID. It is
+# public identity material, not a credential or a signing private key.
+_manifest = json.loads((HERE.parent / "extension" / "manifest.json").read_text())
+_key_hash = hashlib.sha256(base64.b64decode(_manifest["key"], validate=True)).hexdigest()[:32]
+CHROME_EXTENSION_ID = "".join(chr(ord("a") + int(c, 16)) for c in _key_hash)
+EXTENSION_ORIGINS = {"chrome-extension://" + CHROME_EXTENSION_ID}
+# Other browsers require their exact installation origin, explicitly configured.
+EXTENSION_ORIGINS.update(filter(None, os.environ.get("YT_EXT_ALLOWED_ORIGINS", "").split(",")))
 
 
 def origin_allowed(origin):
-    return origin in LOCAL_ORIGINS or origin.startswith(EXTENSION_SCHEMES)
+    return origin in LOCAL_ORIGINS or origin in EXTENSION_ORIGINS
 
 
 def stranger_reason(host, origin, fetch_site=None, fetch_mode=None):
@@ -746,8 +819,8 @@ def stranger_reason(host, origin, fetch_site=None, fetch_mode=None):
         return "bad Host header"
     if origin is not None and not origin_allowed(origin):
         return "origin not allowed"
-    if origin is None and fetch_site == "cross-site" and fetch_mode == "no-cors":
-        return "cross-site embed"
+    if origin is None and fetch_site == "cross-site" and fetch_mode != "navigate":
+        return "cross-site request without Origin"
     return None
 
 
@@ -761,6 +834,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def send_cors(self):
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
         # Never "*": echo the caller's origin back only when it is one of ours.
         origin = self.headers.get("Origin")
         if origin and origin_allowed(origin):
@@ -879,7 +955,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(400, {"error": "not a video id"})
                 log("GET /transcript -> 400 (bad id)")
                 return
-            transcript, meta, err_status, err_payload = fetch_transcript(video_id)
+            transcript, meta, err_status, err_payload = fetch_transcript(video_id, cached_only=True)
             if transcript is None:
                 self.respond(err_status, err_payload)
                 log("GET /transcript %s -> %d" % (video_id, err_status))
@@ -924,7 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.refuse_stranger():
             return
         route = self.path.split("?")[0]
-        if route not in ("/summarize", "/chat", "/ask", "/config"):
+        if route not in ("/summarize", "/chat", "/ask", "/config", "/job", "/progress"):
             self.respond(404, {"error": "not found"})
             log("POST %s -> 404" % self.path)
             return
@@ -933,7 +1009,17 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
-        raw = self.rfile.read(length) if length else b""
+        if length < 0 or length > 1_000_000:
+            self.respond(413, {"error": "request body too large"})
+            return
+        self.connection.settimeout(15)
+        try:
+            raw = self.rfile.read(length) if length else b""
+        except (socket.timeout, OSError):
+            self.respond(408, {"error": "request body timed out"})
+            return
+        finally:
+            self.connection.settimeout(None)
 
         try:
             body = json.loads(raw.decode("utf-8"))
@@ -965,6 +1051,18 @@ class Handler(BaseHTTPRequestHandler):
         if video_id is None:
             self.respond(400, {"error": "not a YouTube video URL"})
             log("POST %s -> 400 (bad url: %r)" % (route, body.get("url")))
+            return
+
+        if route == "/job":
+            status, payload = job_read(video_id)
+            self.respond(status, payload)
+            return
+        if route == "/progress":
+            self.respond(200, progress_get(video_id))
+            return
+        if route == "/summarize":
+            status, payload = start_job(video_id)
+            self.respond(status, payload)
             return
 
         if route == "/ask":
@@ -1009,8 +1107,10 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         log("shutting down")
+    finally:
+        JOB_WORKER.shutdown(wait=False, cancel_futures=True)
+        processes.stop_all()
         server.server_close()
-        return 0
     return 0
 
 

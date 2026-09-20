@@ -19,6 +19,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+try:
+    import processes
+except ImportError:
+    from . import processes
+
 YT_DLP = shutil.which("yt-dlp") or "/opt/homebrew/bin/yt-dlp"
 YT_DLP_TIMEOUT = 120       # seconds, per yt-dlp attempt
 
@@ -70,7 +75,7 @@ def run_yt_dlp(workdir, url, extra_args, cookies_from_browser=None):
     if cookies_from_browser:
         cmd += ["--cookies-from-browser", cookies_from_browser]
     cmd += extra_args + [url]
-    return subprocess.run(
+    return processes.run(
         cmd,
         cwd=workdir,
         stdout=subprocess.PIPE,
