@@ -1,0 +1,1460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT Summarize</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%23ff3b30'/%3E%3C/svg%3E">
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: #1c1c1e;
+  color: #ffffff;
+  font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+}
+body { padding: 28px 20px 60px; }
+.wrap { max-width: 780px; margin: 0 auto; }
+
+/* -- header -------------------------------------------------------------- */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.head h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+.count {
+  font-size: 12px;
+  opacity: 0.5;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -- selection controls -------------------------------------------------- */
+/* A slim, quiet toolbar sitting directly above the rows it acts on. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 18px 0 -6px;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.ctl {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: #ffffff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.55;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.ctl:hover { opacity: 1; background: rgba(255, 255, 255, 0.1); }
+.ctl:disabled { opacity: 0.25; cursor: default; background: transparent; }
+.ctl.danger { color: #ff9c9c; border-color: rgba(255, 107, 107, 0.35); }
+.ctl.danger:hover { background: rgba(255, 107, 107, 0.14); }
+.ctl[hidden] { display: none; }
+.pick {
+  flex: 0 0 auto;
+  margin: 0;
+  width: 13px;
+  height: 13px;
+  accent-color: #7dd3fc;
+  cursor: pointer;
+}
+
+/* -- bucket -------------------------------------------------------------- */
+.bucket {
+  border: 1.5px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 22px 20px 18px;
+  text-align: center;
+  transition: border-color 0.12s, background 0.12s;
+}
+.bucket.over {
+  border-color: #7dd3fc;
+  background: rgba(125, 211, 252, 0.08);
+}
+.bucket .hint {
+  font-size: 13px;
+  opacity: 0.55;
+  margin-bottom: 12px;
+}
+.bucket input {
+  width: 100%;
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  color: #ffffff;
+  font: inherit;
+  padding: 9px 12px;
+  outline: none;
+}
+.bucket input:focus {
+  border-color: rgba(125, 211, 252, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+.bucket input::placeholder { color: rgba(255, 255, 255, 0.35); }
+.notice {
+  margin-top: 10px;
+  font-size: 12px;
+  min-height: 16px;
+  color: #ff9c9c;
+  word-break: break-all;
+}
+.shake { animation: shake 0.32s ease-in-out; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* -- queue --------------------------------------------------------------- */
+.list { margin-top: 18px; }
+.empty { opacity: 0.45; font-size: 13px; padding: 14px 2px; }
+.row {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 13px 0 12px;
+}
+.line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.glyph {
+  width: 16px;
+  flex: 0 0 16px;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.glyph.done { color: #4ade80; }
+.glyph.err { color: #ff6b6b; }
+.glyph.run {
+  display: inline-block;
+  animation: spin 1.1s linear infinite;
+  color: #7dd3fc;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.row.open .name { white-space: normal; }
+.when {
+  font-size: 11px;
+  opacity: 0.35;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.btn {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px 5px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.1); }
+.x { font-size: 18px; line-height: 1; }
+
+/* -- progress (running rows) ------------------------------------------- */
+.prog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 7px 0 0 26px;
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+.prog .bar {
+  flex: 0 0 180px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.prog .bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #7dd3fc;
+  transition: width 0.4s ease;
+}
+.prog.whisper .bar i { background: #fbbf24; }
+.prog .bar.indet i {
+  width: 35%;
+  animation: slide 1.3s ease-in-out infinite;
+}
+@keyframes slide { 0% { margin-left: 0; } 50% { margin-left: 65%; } 100% { margin-left: 0; } }
+.badge {
+  font-size: 10.5px;
+  opacity: 0.55;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* -- reader -------------------------------------------------------------- */
+.detail {
+  margin: 14px 0 12px 49px;
+  padding: 4px 14px 10px 0;
+  max-width: 65ch;
+  font-size: 15px;
+  line-height: 1.68;
+  opacity: 0.93;
+}
+.detail h2 {
+  margin: 0 0 0.9em;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.detail p { margin: 0 0 0.7em; }
+.detail ul { margin: 0.7em 0; padding-left: 20px; }
+.detail li { margin-bottom: 0.4em; }
+.detail li:last-child { margin-bottom: 0; }
+.detail strong { font-weight: 650; }
+.detail a { color: #7dd3fc; }
+.detail.errtext { color: #ff9c9c; white-space: pre-wrap; line-height: 1.6; }
+.src { font-size: 12px; opacity: 0.4; margin-top: 1em; }
+
+/* -- settings (the summary prompt) --------------------------------------- */
+.settings {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 14px 16px 12px;
+  margin-bottom: 16px;
+}
+.settings[hidden] { display: none; }
+.set-label {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-bottom: 8px;
+}
+.settings textarea {
+  width: 100%;
+  min-height: 190px;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  color: #ffffff;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.55;
+  padding: 10px 12px;
+  outline: none;
+}
+.settings textarea:focus { border-color: rgba(125, 211, 252, 0.6); }
+.set-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.set-note { font-size: 11px; opacity: 0.55; }
+
+/* -- reader actions + chat ------------------------------------------------ */
+.acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.chat {
+  margin-top: 14px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  padding-top: 12px;
+}
+.turn { margin-bottom: 10px; }
+.turn .who {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.45;
+  margin-bottom: 2px;
+}
+.turn.q .who { color: #7dd3fc; opacity: 0.8; }
+.turn .txt { white-space: pre-wrap; }
+.chatrow { display: flex; gap: 8px; margin-top: 4px; }
+.chatrow input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 11px;
+  outline: none;
+}
+.chatrow input:focus { border-color: rgba(125, 211, 252, 0.6); }
+.chatrow input::placeholder { color: rgba(255, 255, 255, 0.35); }
+.chatrow input:disabled { opacity: 0.5; }
+.chatstatus { font-size: 12px; opacity: 0.55; margin-top: 6px; min-height: 16px; }
+.chatstatus.err { color: #ff9c9c; opacity: 1; }
+
+footer {
+  margin-top: 34px;
+  font-size: 12px;
+  opacity: 0.32;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 12px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>YT Summarize</h1>
+    <div class="count" id="count"></div>
+    <button class="ctl" id="gear" type="button" title="Edit the summary prompt">⚙ prompt</button>
+  </div>
+
+  <div class="settings" id="settings" hidden>
+    <div class="set-label">Summary prompt — applies to the next summary, no restart needed
+      <span id="promptstate"></span></div>
+    <textarea id="promptbox" spellcheck="false"></textarea>
+    <div class="set-actions">
+      <button class="ctl" id="promptsave" type="button">Save</button>
+      <button class="ctl" id="promptreset" type="button">Reset to default</button>
+      <span class="set-note" id="promptnote"></span>
+    </div>
+  </div>
+
+  <div class="bucket" id="bucket">
+    <div class="hint">Drop YouTube links here — or paste them anywhere on this page</div>
+    <input id="input" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Paste one or more YouTube URLs, then press Enter">
+    <div class="notice" id="notice"></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="controls">
+      <button class="ctl" id="selectall" type="button" hidden>Select all</button>
+      <button class="ctl danger" id="delsel" type="button" hidden>Delete selected</button>
+    </div>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <footer>helper :8188 · cache ~/.cache/yt-ext</footer>
+</div>
+
+<!-- Served straight from extension/shared.js — the extension and this page
+     agree on what a YouTube URL is and how a summary is rendered because they
+     run the same file, not two copies of it. -->
+<script src="/shared.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// Shared with the extension (see shared.js): URL extraction, the status glyph
+// map, and the summary renderer.
+// ---------------------------------------------------------------------------
+
+const { VIDEO_ID_RE, videoId, watchUrl, parseDrop } = YT;
+
+// ---------------------------------------------------------------------------
+// The page
+// ---------------------------------------------------------------------------
+
+function boot() {
+  const STORE_KEY = "yt-ext-bucket-queue";
+
+  const listEl = document.getElementById("list");
+  const countEl = document.getElementById("count");
+  const bucketEl = document.getElementById("bucket");
+  const inputEl = document.getElementById("input");
+  const noticeEl = document.getElementById("notice");
+  const selectAllEl = document.getElementById("selectall");
+  const deleteSelEl = document.getElementById("delsel");
+  const gearEl = document.getElementById("gear");
+  const settingsEl = document.getElementById("settings");
+  const promptBoxEl = document.getElementById("promptbox");
+  const promptSaveEl = document.getElementById("promptsave");
+  const promptResetEl = document.getElementById("promptreset");
+  const promptStateEl = document.getElementById("promptstate");
+  const promptNoteEl = document.getElementById("promptnote");
+
+  // id -> {id, url, status, title, meta, summary, error, generated_at, sort}
+  const items = new Map();
+  // Ticked rows. Session-only on purpose — never saved, never restored.
+  const selected = new Set();
+  let sweeping = false;
+  let seq = 0;
+  let inFlight = false;
+  let expandedId = null;
+  let expandedManually = false;
+  let noticeTimer = null;
+
+  // -- model ----------------------------------------------------------------
+
+  function titleOf(item) {
+    if (item.meta) {
+      const head = item.meta.split("|")[0].trim();
+      if (head) {
+        return head;
+      }
+    }
+    return "video " + item.id;
+  }
+
+  function sortedItems() {
+    return Array.from(items.values()).sort((a, b) => b.sort - a.sort);
+  }
+
+  function save() {
+    const pending = sortedItems()
+      .filter((item) => item.status === "queued" || item.status === "running")
+      .map((item) => ({ id: item.id, url: item.url }));
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(pending));
+    } catch (err) {
+      // Private mode / quota. The queue simply won't survive a reload.
+    }
+  }
+
+  function restore() {
+    let pending = [];
+    try {
+      pending = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+    } catch (err) {
+      pending = [];
+    }
+    if (!Array.isArray(pending)) {
+      return;
+    }
+    // Oldest first in the stored list is not guaranteed; enqueue in the order
+    // given and let the sequence numbers re-establish FIFO.
+    for (const entry of pending.slice().reverse()) {
+      if (entry && typeof entry.id === "string" && VIDEO_ID_RE.test(entry.id)) {
+        enqueue(entry.id, { silent: true });
+      }
+    }
+  }
+
+  function enqueue(id, options) {
+    const opts = options || {};
+    const existing = items.get(id);
+
+    if (existing) {
+      // Already here — a re-paste of something archived just opens it.
+      if (!opts.silent) {
+        expandedId = id;
+        expandedManually = true;
+        render();
+        scrollTo(id);
+      }
+      return existing;
+    }
+
+    const item = {
+      id: id,
+      url: watchUrl(id),
+      status: "queued",
+      title: "",
+      meta: "",
+      summary: "",
+      error: "",
+      generated_at: "",
+      sort: Date.now() + (seq++),
+    };
+    items.set(id, item);
+    return item;
+  }
+
+  // -- the FIFO -------------------------------------------------------------
+
+  function pump() {
+    if (inFlight) {
+      return;
+    }
+    // Strictly one at a time, oldest queued first — the server does the heavy
+    // work and parallel claude calls are exactly what we're avoiding.
+    let next = null;
+    for (const item of items.values()) {
+      if (item.status === "queued" && (next === null || item.sort < next.sort)) {
+        next = item;
+      }
+    }
+    if (!next) {
+      return;
+    }
+
+    inFlight = true;
+    next.status = "running";
+    render();
+    save();
+    run(next);
+  }
+
+  // While an item runs, ask the helper what it is doing once a second so the
+  // row can show a bar — and, when captions are missing, say out loud that
+  // the local whisper fallback is at work.
+  function watchProgress(item) {
+    const timer = setInterval(() => {
+      if (!items.has(item.id) || item.status !== "running") {
+        clearInterval(timer);
+        return;
+      }
+      fetch("/progress/" + encodeURIComponent(item.id))
+        .then((response) => response.json())
+        .then((progress) => {
+          if (item.status !== "running") {
+            return;
+          }
+          const before = JSON.stringify(item.progress || null);
+          item.progress = progress && progress.stage ? progress : null;
+          if (JSON.stringify(item.progress) !== before) {
+            render();
+          }
+        })
+        .catch(() => {});
+    }, 1000);
+    return timer;
+  }
+
+  function run(item) {
+    const watcher = watchProgress(item);
+    fetch("/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: item.url }),
+    })
+      .then((response) =>
+        response.json()
+          .catch(() => ({}))
+          .then((data) => ({ ok: response.ok, status: response.status, data: data }))
+      )
+      .then((result) => {
+        if (!items.has(item.id)) {
+          return; // Removed while it was running.
+        }
+        if (result.ok && result.data && result.data.summary) {
+          item.status = "done";
+          item.meta = result.data.meta || "";
+          item.summary = result.data.summary;
+          item.url = result.data.url || item.url;
+          item.generated_at = result.data.generated_at || "";
+          item.source = result.data.source || "captions";
+          item.error = "";
+          if (!expandedManually || !items.has(expandedId)) {
+            expandedId = item.id;
+            expandedManually = false;
+          }
+        } else {
+          item.status = "error";
+          item.error = errorText(result);
+        }
+      })
+      .catch((err) => {
+        const live = items.get(item.id);
+        if (live) {
+          live.status = "error";
+          live.error = String((err && err.message) || err);
+        }
+      })
+      .then(() => {
+        clearInterval(watcher);
+        item.progress = null;
+        inFlight = false;
+        render();
+        save();
+        pump();
+      });
+  }
+
+  function errorText(result) {
+    const data = result.data || {};
+    const parts = [];
+    if (data.error) {
+      parts.push(String(data.error));
+    }
+    if (data.detail) {
+      parts.push(String(data.detail));
+    }
+    if (!parts.length) {
+      parts.push("server returned " + result.status);
+    }
+    return parts.join("\n\n");
+  }
+
+  // -- archive --------------------------------------------------------------
+
+  function loadArchive() {
+    return fetch("/recent")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((entries) => {
+        if (!Array.isArray(entries)) {
+          return;
+        }
+        // Newest-first from the server; give them descending sort keys below
+        // anything enqueued this session.
+        let rank = entries.length;
+        for (const entry of entries) {
+          if (!entry || typeof entry.video_id !== "string") {
+            continue;
+          }
+          rank -= 1;
+          const existing = items.get(entry.video_id);
+          if (existing) {
+            // Pending on this page but already in the cache — it's done.
+            if (existing.status === "queued") {
+              existing.status = "done";
+            }
+            existing.meta = existing.meta || entry.meta || "";
+            existing.summary = existing.summary || entry.summary || "";
+            existing.generated_at = existing.generated_at || entry.generated_at || "";
+            continue;
+          }
+          items.set(entry.video_id, {
+            id: entry.video_id,
+            url: entry.url || watchUrl(entry.video_id),
+            status: "done",
+            title: "",
+            meta: entry.meta || "",
+            summary: entry.summary || "",
+            source: entry.source || "captions",
+            error: "",
+            generated_at: entry.generated_at || "",
+            sort: rank - 1e12,
+          });
+        }
+      })
+      .catch(() => {});
+  }
+
+  function forget(item) {
+    items.delete(item.id);
+    selected.delete(item.id);
+    if (expandedId === item.id) {
+      expandedId = null;
+      expandedManually = false;
+    }
+    render();
+    save();
+
+    if (item.status !== "done") {
+      return;
+    }
+    fetch("/summary/" + encodeURIComponent(item.id), { method: "DELETE" })
+      .catch(() => {});
+  }
+
+  // -- selection ------------------------------------------------------------
+
+  function toggle(id, on) {
+    if (on) {
+      selected.add(id);
+    } else {
+      selected.delete(id);
+    }
+    render();
+  }
+
+  function toggleAll() {
+    const all = sortedItems();
+    if (all.length && selected.size === all.length) {
+      selected.clear();
+    } else {
+      for (const item of all) {
+        selected.add(item.id);
+      }
+    }
+    render();
+  }
+
+  // One DELETE at a time — these are tiny and there is no reason to storm the
+  // helper. A 404 (already gone) is not an error worth stopping for, and fetch
+  // doesn't reject on it anyway.
+  function deleteCached(ids) {
+    if (!ids.length) {
+      return Promise.resolve();
+    }
+    return fetch("/summary/" + encodeURIComponent(ids[0]), { method: "DELETE" })
+      .catch(() => {})
+      .then(() => deleteCached(ids.slice(1)));
+  }
+
+  function deleteSelected() {
+    if (sweeping) {
+      return;
+    }
+    const doomed = sortedItems().filter((item) => selected.has(item.id));
+    if (!doomed.length) {
+      return;
+    }
+
+    // A running job is already in the server's hands and can't be recalled, so
+    // it is left exactly where it is; everything else goes.
+    const cull = doomed.filter((item) => item.status !== "running");
+    const cached = cull
+      .filter((item) => item.status === "done")
+      .map((item) => item.id);
+
+    for (const item of cull) {
+      items.delete(item.id);
+      if (expandedId === item.id) {
+        expandedId = null;
+        expandedManually = false;
+      }
+    }
+    selected.clear();
+
+    if (!cull.length) {
+      render();
+      return;
+    }
+
+    sweeping = true;
+    render();
+    save();
+
+    deleteCached(cached)
+      .then(() => loadArchive())
+      .then(() => {
+        sweeping = false;
+        render();
+        save();
+      });
+  }
+
+  // -- render ---------------------------------------------------------------
+
+  function render() {
+    const all = sortedItems();
+
+    // Rows can vanish under a selection (a finished ×, a sweep); don't let the
+    // set keep ghosts.
+    for (const id of Array.from(selected)) {
+      if (!items.has(id)) {
+        selected.delete(id);
+      }
+    }
+    controls(all);
+
+    const running = all.filter((item) => item.status === "running").length;
+    const queued = all.filter((item) => item.status === "queued").length;
+    const done = all.filter((item) => item.status === "done").length;
+    const bits = [];
+    if (running) {
+      bits.push(running + " running");
+    }
+    if (queued) {
+      bits.push(queued + " queued");
+    }
+    bits.push(done + (done === 1 ? " summary" : " summaries"));
+    countEl.textContent = bits.join(" · ");
+
+    // A background render (a queue item finishing, a timed refresh) rebuilds
+    // the rows; if the user was mid-question, put the caret back where it was.
+    const active = document.activeElement;
+    const focusChatFor = (active && active.dataset && active.dataset.chatfor) || null;
+
+    while (listEl.firstChild) {
+      listEl.removeChild(listEl.firstChild);
+    }
+
+    if (!all.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Nothing here yet. Drop a YouTube link in the bucket.";
+      listEl.appendChild(empty);
+      return;
+    }
+
+    for (const item of all) {
+      listEl.appendChild(row(item));
+    }
+
+    if (focusChatFor) {
+      focusChatInput(focusChatFor);
+    }
+  }
+
+  function controls(all) {
+    const n = selected.size;
+    selectAllEl.hidden = !all.length;
+    selectAllEl.disabled = sweeping;
+    selectAllEl.textContent =
+      all.length && n === all.length ? "Select none" : "Select all";
+    deleteSelEl.hidden = n === 0;
+    deleteSelEl.disabled = sweeping;
+    deleteSelEl.textContent = "Delete selected (" + n + ")";
+  }
+
+  function row(item) {
+    const open = expandedId === item.id;
+
+    const wrap = document.createElement("div");
+    wrap.className = open ? "row open" : "row";
+    wrap.dataset.id = item.id;
+
+    const line = document.createElement("div");
+    line.className = "line";
+
+    const pick = document.createElement("input");
+    pick.type = "checkbox";
+    pick.className = "pick";
+    pick.checked = selected.has(item.id);
+    pick.setAttribute("aria-label", "Select");
+    // The row itself opens the reader; the tick box must not do both.
+    pick.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggle(item.id, pick.checked);
+    });
+
+    const mark = YT.glyph(item.status);
+    const glyph = document.createElement("span");
+    glyph.className = "glyph";
+    if (mark.kind) {
+      glyph.classList.add(mark.kind);
+    }
+    glyph.textContent = mark.char;
+
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = titleOf(item);
+    name.title = item.url;
+
+    const when = document.createElement("div");
+    when.className = "when";
+    when.textContent = item.status === "done" ? ago(item.generated_at) : "";
+
+    const kill = document.createElement("button");
+    kill.className = "btn x";
+    kill.textContent = "×";
+    kill.setAttribute("aria-label", "Remove");
+    kill.addEventListener("click", (event) => {
+      event.stopPropagation();
+      forget(item);
+    });
+
+    line.appendChild(pick);
+    line.appendChild(glyph);
+    line.appendChild(name);
+    const badgeText = item.status === "done" ? YT.sourceBadge(item.source) : "";
+    if (badgeText) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = badgeText;
+      badge.title = "YouTube had no caption track; the audio was transcribed on this Mac with whisper.";
+      line.appendChild(badge);
+    }
+    line.appendChild(when);
+    line.appendChild(kill);
+    line.addEventListener("click", () => {
+      if (expandedId === item.id) {
+        expandedId = null;
+        expandedManually = false;
+      } else {
+        expandedId = item.id;
+        expandedManually = true;
+      }
+      render();
+    });
+
+    wrap.appendChild(line);
+
+    if (item.status === "running") {
+      wrap.appendChild(progressBar(item.progress, "prog", "bar", "indet", "whisper"));
+    }
+
+    if (open) {
+      if (item.status === "error") {
+        const detail = document.createElement("div");
+        detail.className = "detail errtext";
+        detail.textContent = item.error || "Unknown error.";
+        wrap.appendChild(detail);
+      } else if (item.summary) {
+        const box = document.createElement("div");
+        box.className = "detail";
+        YT.fillSummary(box, item.summary, {
+          headingTag: "h2",
+          sourceUrl: item.url,
+          sourceClass: "src"
+        });
+
+        const acts = document.createElement("div");
+        acts.className = "acts";
+
+        const askBtn = ctlButton(item.chatOpen ? "Hide chat" : "💬 Ask about this video");
+        askBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          item.chatOpen = !item.chatOpen;
+          render();
+          if (item.chatOpen) {
+            focusChatInput(item.id);
+          }
+        });
+
+        const copyBtn = ctlButton(copyLabel(item));
+        copyBtn.disabled = item.copyState === "busy";
+        copyBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          copyTranscript(item);
+        });
+
+        const termBtn = ctlButton(termLabel(item));
+        termBtn.disabled = item.termState === "busy";
+        termBtn.title = "Open an interactive Claude on this video in iTerm2";
+        termBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openTerminal(item);
+        });
+
+        acts.appendChild(askBtn);
+        acts.appendChild(copyBtn);
+        acts.appendChild(termBtn);
+        box.appendChild(acts);
+
+        if (item.chatOpen) {
+          box.appendChild(chatPane(item));
+        }
+        wrap.appendChild(box);
+      } else {
+        const detail = document.createElement("div");
+        detail.className = "detail";
+        detail.textContent =
+          item.status === "running" ? "Summarizing…" : "Waiting in the queue…";
+        wrap.appendChild(detail);
+      }
+    }
+
+    return wrap;
+  }
+
+  // Label + bar for a running row. Percentage stages fill the bar; the rest
+  // slide an indeterminate segment so the row still visibly moves.
+  function progressBar(progress, cls, barCls, indetCls, whisperCls) {
+    const view = YT.progressView(progress);
+    const box = document.createElement("div");
+    box.className = cls + (view.whisper ? " " + whisperCls : "");
+    const bar = document.createElement("span");
+    bar.className = barCls + (view.pct === null ? " " + indetCls : "");
+    const fill = document.createElement("i");
+    if (view.pct !== null) {
+      fill.style.width = view.pct + "%";
+    }
+    bar.appendChild(fill);
+    const text = document.createElement("span");
+    text.textContent = view.label;
+    box.appendChild(bar);
+    box.appendChild(text);
+    return box;
+  }
+
+  // -- chat / transcript actions --------------------------------------------
+
+  function ctlButton(label) {
+    const btn = document.createElement("button");
+    btn.className = "ctl";
+    btn.type = "button";
+    btn.textContent = label;
+    return btn;
+  }
+
+  function copyLabel(item) {
+    if (item.copyState === "busy") { return "Copying…"; }
+    if (item.copyState === "done") { return "Copied ✓"; }
+    if (item.copyState === "err") { return "Copy failed"; }
+    return "Copy transcript";
+  }
+
+  function termLabel(item) {
+    if (item.termState === "busy") { return "Opening…"; }
+    if (item.termState === "done") { return "Opened ✓"; }
+    if (item.termState === "err") { return "Terminal failed"; }
+    return "Open in terminal";
+  }
+
+  function chatPane(item) {
+    const pane = document.createElement("div");
+    pane.className = "chat";
+
+    for (const turn of item.chat || []) {
+      const t = document.createElement("div");
+      t.className = "turn " + (turn.role === "user" ? "q" : "a");
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent = turn.role === "user" ? "you" : "claude";
+      const txt = document.createElement("div");
+      txt.className = "txt";
+      txt.textContent = turn.text;
+      t.appendChild(who);
+      t.appendChild(txt);
+      pane.appendChild(t);
+    }
+
+    const busy = !!item.asking;
+    const ready = item.status === "done";
+
+    const rowEl = document.createElement("div");
+    rowEl.className = "chatrow";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Ask about this video…";
+    input.value = item.chatDraft || "";
+    input.dataset.chatfor = item.id;
+    input.disabled = busy || !ready;
+    input.addEventListener("input", () => { item.chatDraft = input.value; });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { sendAsk(item); }
+    });
+    const go = ctlButton("Ask");
+    go.disabled = busy || !ready;
+    go.addEventListener("click", () => sendAsk(item));
+    rowEl.appendChild(input);
+    rowEl.appendChild(go);
+    pane.appendChild(rowEl);
+
+    const status = document.createElement("div");
+    status.className = "chatstatus" + (item.chatError ? " err" : "");
+    status.textContent = item.chatError
+      ? item.chatError
+      : (busy
+        ? "Thinking — a long transcript can take 30–60s…"
+        : (ready ? "" : "Waiting for the summary to finish…"));
+    pane.appendChild(status);
+
+    return pane;
+  }
+
+  function sendAsk(item) {
+    const question = (item.chatDraft || "").trim();
+    if (!question || item.asking || item.status !== "done") {
+      return;
+    }
+    if (!item.chat) {
+      item.chat = [];
+    }
+    const history = item.chat.slice();
+    item.chat.push({ role: "user", text: question });
+    item.chatDraft = "";
+    item.asking = true;
+    item.chatError = "";
+    render();
+
+    fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: item.id, question: question, history: history }),
+    })
+      .then((response) =>
+        response.json()
+          .catch(() => ({}))
+          .then((data) => ({ ok: response.ok, status: response.status, data: data }))
+      )
+      .then((result) => {
+        if (result.ok && result.data && result.data.reply) {
+          item.chat.push({ role: "assistant", text: result.data.reply });
+        } else {
+          item.chatError = "Ask failed: " + errorText(result);
+        }
+      })
+      .catch((err) => {
+        item.chatError = "Ask failed: " + String((err && err.message) || err);
+      })
+      .then(() => {
+        item.asking = false;
+        render();
+        focusChatInput(item.id);
+      });
+  }
+
+  function copyTranscript(item) {
+    if (item.copyState === "busy") {
+      return;
+    }
+    item.copyState = "busy";
+    render();
+
+    const textPromise = fetch("/transcript?v=" + encodeURIComponent(item.id))
+      .then((response) => {
+        if (!response.ok) { throw new Error("server " + response.status); }
+        return response.text();
+      });
+
+    // Safari only honors clipboard writes tied to the user gesture, which an
+    // await breaks — a promise-fed ClipboardItem is the sanctioned way. Chrome
+    // takes either path.
+    let written;
+    if (navigator.clipboard && window.ClipboardItem) {
+      written = navigator.clipboard.write([new ClipboardItem({
+        "text/plain": textPromise.then((text) => new Blob([text], { type: "text/plain" })),
+      })]);
+    } else {
+      written = textPromise.then((text) => navigator.clipboard.writeText(text));
+    }
+
+    written
+      .then(() => { item.copyState = "done"; })
+      .catch(() => { item.copyState = "err"; })
+      .then(() => {
+        render();
+        setTimeout(() => { item.copyState = ""; render(); }, 2000);
+      });
+  }
+
+  function openTerminal(item) {
+    if (item.termState === "busy") {
+      return;
+    }
+    item.termState = "busy";
+    item.chatError = "";
+    render();
+
+    fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: item.url }),
+    })
+      .then((response) =>
+        response.json()
+          .catch(() => ({}))
+          .then((data) => ({ ok: response.ok, status: response.status, data: data }))
+      )
+      .then((result) => {
+        item.termState = result.ok ? "done" : "err";
+        if (!result.ok) {
+          item.chatOpen = true;
+          item.chatError = "Terminal failed: " + errorText(result);
+        }
+      })
+      .catch(() => { item.termState = "err"; })
+      .then(() => {
+        render();
+        setTimeout(() => { item.termState = ""; render(); }, 2500);
+      });
+  }
+
+  function focusChatInput(id) {
+    const el = listEl.querySelector('input[data-chatfor="' + id + '"]');
+    if (el && !el.disabled) {
+      el.focus();
+      const end = el.value.length;
+      try { el.setSelectionRange(end, end); } catch (err) { /* type=text is fine everywhere */ }
+    }
+  }
+
+  function ago(stamp) {
+    const then = Date.parse(stamp || "");
+    if (!then) {
+      return "";
+    }
+    const mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 1) {
+      return "just now";
+    }
+    if (mins < 60) {
+      return mins + "m ago";
+    }
+    const hours = Math.round(mins / 60);
+    if (hours < 24) {
+      return hours + "h ago";
+    }
+    const days = Math.round(hours / 24);
+    return days + "d ago";
+  }
+
+  function scrollTo(id) {
+    const el = listEl.querySelector('[data-id="' + id + '"]');
+    if (el && el.scrollIntoView) {
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  // -- intake ---------------------------------------------------------------
+
+  function accept(text) {
+    const parsed = parseDrop(text);
+
+    for (const id of parsed.ids) {
+      enqueue(id, { silent: false });
+    }
+
+    if (parsed.rejects.length) {
+      const shown = parsed.rejects.slice(0, 2).join(" ");
+      const more = parsed.rejects.length > 2
+        ? " (+" + (parsed.rejects.length - 2) + " more)"
+        : "";
+      complain("Not a YouTube video: " + shown + more);
+    } else if (parsed.ids.length) {
+      complain("");
+    }
+
+    render();
+    save();
+    pump();
+    return parsed.ids.length;
+  }
+
+  function complain(message) {
+    noticeEl.textContent = message;
+    if (noticeTimer) {
+      clearTimeout(noticeTimer);
+      noticeTimer = null;
+    }
+    if (!message) {
+      return;
+    }
+    bucketEl.classList.remove("shake");
+    void bucketEl.offsetWidth; // restart the animation
+    bucketEl.classList.add("shake");
+    noticeTimer = setTimeout(() => {
+      noticeEl.textContent = "";
+      bucketEl.classList.remove("shake");
+    }, 5000);
+  }
+
+  // -- settings (the summary prompt) ----------------------------------------
+
+  let configLoaded = false;
+
+  function showPromptState(isDefault) {
+    promptStateEl.textContent = isDefault ? "· default" : "· custom";
+  }
+
+  function loadConfig() {
+    return fetch("/config")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("server " + response.status))))
+      .then((cfg) => {
+        promptBoxEl.value = cfg.prompt || "";
+        showPromptState(!!cfg.is_default);
+        configLoaded = true;
+      });
+  }
+
+  gearEl.addEventListener("click", () => {
+    const opening = settingsEl.hidden;
+    settingsEl.hidden = !opening;
+    promptNoteEl.textContent = "";
+    if (opening && !configLoaded) {
+      loadConfig().catch(() => {
+        promptNoteEl.textContent = "Could not load the prompt from the helper.";
+      });
+    }
+  });
+
+  function pushPrompt(value) {
+    promptSaveEl.disabled = true;
+    promptResetEl.disabled = true;
+    promptNoteEl.textContent = "Saving…";
+    fetch("/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: value }),
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("server " + response.status))))
+      .then((cfg) => {
+        promptBoxEl.value = cfg.prompt || "";
+        showPromptState(!!cfg.is_default);
+        promptNoteEl.textContent = cfg.is_default
+          ? "Default restored — applies to the next summary."
+          : "Saved — applies to the next summary.";
+      })
+      .catch((err) => {
+        promptNoteEl.textContent = "Save failed: " + String((err && err.message) || err);
+      })
+      .then(() => {
+        promptSaveEl.disabled = false;
+        promptResetEl.disabled = false;
+      });
+  }
+
+  promptSaveEl.addEventListener("click", () => pushPrompt(promptBoxEl.value));
+  promptResetEl.addEventListener("click", () => pushPrompt(""));
+
+  selectAllEl.addEventListener("click", () => toggleAll());
+  deleteSelEl.addEventListener("click", () => deleteSelected());
+
+  inputEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    const text = inputEl.value;
+    if (!text.trim()) {
+      return;
+    }
+    if (accept(text)) {
+      inputEl.value = "";
+    }
+  });
+
+  for (const type of ["dragenter", "dragover"]) {
+    bucketEl.addEventListener(type, (event) => {
+      event.preventDefault();
+      bucketEl.classList.add("over");
+    });
+  }
+  for (const type of ["dragleave", "dragend"]) {
+    bucketEl.addEventListener(type, () => bucketEl.classList.remove("over"));
+  }
+
+  // Drops land anywhere on the page, not just inside the dashed box.
+  document.addEventListener("dragover", (event) => event.preventDefault());
+  document.addEventListener("drop", (event) => {
+    event.preventDefault();
+    bucketEl.classList.remove("over");
+    const dt = event.dataTransfer;
+    if (!dt) {
+      return;
+    }
+    const chunks = [];
+    for (const type of ["text/uri-list", "text/plain"]) {
+      let value = "";
+      try {
+        value = dt.getData(type) || "";
+      } catch (err) {
+        value = "";
+      }
+      if (value) {
+        chunks.push(value);
+      }
+    }
+    if (chunks.length) {
+      accept(chunks.join("\n"));
+    }
+  });
+
+  // ⌘V anywhere on the page (the input handles its own paste normally).
+  document.addEventListener("paste", (event) => {
+    if (document.activeElement === inputEl) {
+      return;
+    }
+    const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+    if (!text || !text.trim()) {
+      return;
+    }
+    event.preventDefault();
+    accept(text);
+  });
+
+  // -- deep link ------------------------------------------------------------
+
+  // The extension sends us to #v=<id> when it summarized a link from a page
+  // with no panel to show it on. It never re-queues: the extension already
+  // asked the server for this video, and a second request would run the whole
+  // pipeline again in parallel. We just wait for the archive to catch up.
+  // #chat=<id> is the extension's "Chat about this video": open (queueing
+  // first if this video was never summarized — the menu item itself does not
+  // queue) and unfold the chat pane. The input unlocks when the summary lands.
+  function focusFromHash() {
+    const hash = location.hash || "";
+
+    const chatMatch = /^#chat=([A-Za-z0-9_-]{11})$/.exec(hash);
+    if (chatMatch) {
+      const id = chatMatch[1];
+      if (!items.has(id)) {
+        enqueue(id, { silent: true });
+        save();
+        pump();
+      }
+      const item = items.get(id);
+      item.chatOpen = true;
+      expandedId = id;
+      expandedManually = true;
+      noticeEl.textContent = "";
+      render();
+      scrollTo(id);
+      focusChatInput(id);
+      return;
+    }
+
+    const match = /^#v=([A-Za-z0-9_-]{11})$/.exec(hash);
+    if (!match) {
+      return;
+    }
+    if (!reveal(match[1])) {
+      noticeEl.textContent = "Summarizing — this will open as soon as it lands.";
+      awaitArchive(match[1], 120); // ~6 minutes at 3s, past the helper's timeout.
+    }
+  }
+
+  function reveal(id) {
+    if (!items.has(id)) {
+      return false;
+    }
+    expandedId = id;
+    expandedManually = true;
+    noticeEl.textContent = "";
+    render();
+    scrollTo(id);
+    return true;
+  }
+
+  function awaitArchive(id, tries) {
+    if (tries <= 0) {
+      noticeEl.textContent = "";
+      return;
+    }
+    setTimeout(() => {
+      // A paste or drop of the same video while we waited counts as arrival.
+      if (reveal(id)) {
+        return;
+      }
+      loadArchive().then(() => {
+        if (reveal(id)) {
+          return;
+        }
+        render(); // Other videos may have landed in the archive meanwhile.
+        awaitArchive(id, tries - 1);
+      });
+    }, 3000);
+  }
+
+  window.addEventListener("hashchange", focusFromHash);
+
+  // -- go -------------------------------------------------------------------
+
+  restore();
+  render();
+  loadArchive().then(() => {
+    render();
+    save();
+    pump();
+    focusFromHash();
+  });
+}
+
+if (typeof document !== "undefined") {
+  boot();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "YT Summarize",
+  "version": "0.4.0",
+  "description": "Summarize YouTube videos with your local helper server, or hand the whole transcript to Claude in a terminal — from the toolbar, the page, or any link.",
+  "permissions": [
+    "contextMenus",
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:8188/*",
+    "http://127.0.0.1:8188/*",
+    "*://*.youtube.com/*",
+    "*://youtu.be/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["shared.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "YT Summarize — summarize this video, or show the panel",
+    "default_icon": {
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
