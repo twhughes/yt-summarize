@@ -194,10 +194,19 @@ def finish_job(video_id):
     with PIPELINE_LOCK:
         with JOBS_LOCK:
             JOBS[video_id]["payload"]["state"] = "running"
+        started = time.time()
+        log("job %s ..." % video_id)
         try:
             status, payload = summarize_video(video_id)
         except Exception as exc:
             status, payload = 500, {"error": "internal error", "detail": str(exc)}
+        if status == 200:
+            note = ", cached" if payload.get("cached") else ""
+        else:
+            # First line of the detail names the cause (429, timeout, no captions).
+            detail = (payload.get("detail") or "").strip().splitlines()
+            note = ": %s%s" % (payload.get("error"), " — " + detail[0][:200] if detail else "")
+        log("job %s -> %d (%.1fs%s)" % (video_id, status, time.time() - started, note))
         with JOBS_LOCK:
             JOBS[video_id] = {"status": status, "payload": payload}
 
@@ -783,7 +792,7 @@ def tail(text, limit=500):
 # --------------------------------------------------------------------------
 
 def log(message):
-    stamp = datetime.now().strftime("%H:%M:%S")
+    stamp = datetime.now().strftime("%m-%d %H:%M:%S")
     print("[%s] %s" % (stamp, message), flush=True)
 
 
